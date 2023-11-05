@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  your-service-name:
+    networks:
+      - test_network
+    build: 
+      context: .
+      dockerfile: Dockerfile 
+    image: load_places:latest
+    volumes:
+      - ./data:/data
+
+networks:
+  test_network:
+    external: true

@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  your-service-name:
+    environment:
+      - DATABASE_URL=postgresql://codetest:password@database/codetest
+    networks:
+      - test_network
+    build: 
+      context: .
+      dockerfile: Dockerfile 
+    image: load_people:latest
+    volumes:
+      - ./data:/data
+networks:
+  test_network:
+    external: true

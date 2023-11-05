@@ -1,27 +1,108 @@
-version: "3.7"
+version: '3'
+
+#COMMONS
+x-airflow-common:
+  &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME}
+  # build: .
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # For backward compatibility, with Airflow <2.3
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    # AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    DATA_DIR: ${DATA_DIR}
+    #this need to change based on location of your dir locally
+    # AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    # _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+  volumes:
+    - ./data:/opt/airflow/data
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./db:/usr/local/airflow/db
+  user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-50000}"
+
+  depends_on:
+    &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
 
 services:
-  postgres_metadata:
-    image: postgres:latest
+  #POSTGRES for airflow meta
+  postgres:
+    image: postgres:13
     environment:
       POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow_password
+      POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
-      AIRFLOW__WEBSERVER__SECRET_KEY: "test"
-    ports:
-      - "5432:5432"
     volumes:
-      - ./db_init:/docker-entrypoint-initdb.d/
-      # - AIRFLOW__WEBSERVER__SECRET_KEY="test"
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+    restart: always
 
+  #airflow webserver
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - 8080:8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  #airflow scheduler
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  #initialize Meta db for airflow
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash -c "/bin/bash -c \"$${@}\""
+    command: |
+      /bin/bash -c "
+        airflow db init
+        airflow db upgrade
+        airflow users create -r Admin -u admin -e airflow@airflow.com -f admin -l user -p airflow
+      "
+    environment:
+      <<: *airflow-common-env
+
+  #DB For ETL where required schema is created for people
   database:
-    image: postgres
+    image: postgres:latest
     volumes:
-      - ./example_schema.sql:/docker-entrypoint-initdb.d/example_schema.sql
+      # - ./example_schema.sql:/docker-entrypoint-initdb.d/example_schema.sql
+      - ./db_init:/docker-entrypoint-initdb.d
     environment:
       - POSTGRES_DB=codetest
       - POSTGRES_USER=codetest
       - POSTGRES_PASSWORD=password
+    networks:
+      - test_network
     healthcheck:
       test: pg_isready -U codetest
       interval: 5s
@@ -29,44 +110,74 @@ services:
       retries: 3
     ports:
       - 5433:5432
-  webserver:
-    image: apache/airflow:2.7.2
+  #this proxy is needed to be able to access the docker via operator
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.1.1
     environment:
-      - LOAD_EX=n
-      - EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_password@postgres_metadata:5432/airflow
-      - AIRFLOW__WEBSERVER__SECRET_KEY="test"
-      # - AIRFLOW__CORE__FERNET_KEY=1cbfd9939bbdb8647cb7bef7801244dae4ccffd45d4ba4605298b3988281cdd6
+      CONTAINERS: 1
+      IMAGES: 1
+      AUTH: 1
+      POST: 1
+    privileged: true
     volumes:
-      - ./dags:/opt/airflow/dags
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data:/data
-    ports:
-      - "8080:8080"
-    depends_on:
-      - postgres_metadata
-      - database
-    command: webserver
+    restart: always
 
-  scheduler:
-    image: apache/airflow:2.7.2
-    depends_on:
-      - webserver
-    environment:
-      - LOAD_EX=n
-      - EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_password@postgres_metadata:5432/airflow
-      # - AIRFLOW__CORE__FERNET_KEY=1cbfd9939bbdb8647cb7bef7801244dae4ccffd45d4ba4605298b3988281cdd6
-      - AIRFLOW__WEBSERVER__SECRET_KEY="test"
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./data:/data
-    command: scheduler
-
-
-
-  app:
-    image: app
-    build: src
-    command: ["./main.py"]
+  #for load places python app image
+  load_places:
+    <<: *airflow-common
+    # environment:
+    #   - DATA_DIR='/Users/filmongebreyesus/Desktop/data_pipeline_creater/data-engineering-main'
+    #   - DATABASE_URL=postgresql://codetest:password@database/codetest
+    networks:
+      - test_network
+    build: 
+      context: ./load_places
+      dockerfile: Dockerfile 
+    image: load_people:latest
     volumes:
       - ./data:/data
+    # ports:
+    #   - "8000:8000"
+
+  #for load people python app image
+  load_people:
+    <<: *airflow-common
+    # environment:
+    #   - DATABASE_URL=postgresql://codetest:password@database/codetest
+    networks:
+      - test_network
+    build: 
+      context: ./load_people
+      dockerfile: Dockerfile 
+    image: load_places:latest
+    volumes:
+      - ./data:/data
+    # ports:
+    #   - "8000:8000"
+
+  #for transform python app image
+  transform:
+    <<: *airflow-common
+    # environment:
+    #   - DATABASE_URL=postgresql://codetest:password@database/codetest
+    networks:
+      - test_network
+    build: 
+      context: ./transform
+      dockerfile: Dockerfile 
+    image: transform:latest
+    volumes:
+      - ./data:/data
+    # ports:
+    #   - "8000:8000"
+
+volumes:
+  postgres-db-volume:
+
+networks:
+  test_network:
+    external: true
+
+

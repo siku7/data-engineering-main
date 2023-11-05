@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  your-service-name:
+    environment:
+      - DATABASE_URL=postgresql://codetest:password@database/codetest
+    networks:
+      - test_network
+    build: 
+      context: .
+      dockerfile: Dockerfile # only needed if your Dockerfile has a different name or is in a different directory
+    image: load_files:latest
+    volumes:
+      - ./data:/data
+    # other settings like ports, environment variables, etc.
+networks:
+  test_network:
+    external: true
