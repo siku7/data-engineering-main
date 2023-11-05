@@ -42,8 +42,8 @@ print(f"result final: {results_dict}")
 json_file_path = 'data/summary_output.json'
 
 # Write the list of dictionaries to a JSON file
-with open(json_file_path, 'w') as json_file:
-    json.dump(results_dict, json_file, indent=4)
+with open(json_file_path, 'w',encoding='utf-8') as json_file:
+    json.dump(results_dict, json_file, ensure_ascii=False, indent=4)
 
 print(f"Results have been written to {json_file_path}")
 

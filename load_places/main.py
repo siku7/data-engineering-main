@@ -19,7 +19,7 @@ conn = psycopg2.connect(
 cursor = conn.cursor()
 
 # Load locations data, making sure duplicates are not loaded 
-with open('data/places.csv', 'r') as file:
+with open('data/places.csv', 'r', encoding='utf-8') as file:
     reader = csv.DictReader(file)
     for row in reader:
         cursor.execute(

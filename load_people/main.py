@@ -28,7 +28,7 @@ def get_location_id(city):
     return result[0] if result else None
 
 # Load people data
-with open('data/people.csv', 'r') as file:
+with open('data/people.csv', 'r', encoding='utf-8') as file:
     reader = csv.DictReader(file)
     for row in reader:
         # Get the location ID for the current row's place of birth
