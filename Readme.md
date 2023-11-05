@@ -1,106 +1,183 @@
-# Code test for data engineering candidates
+# Test Response
 
-## Purpose
+## Code was given as attachment thus instead of forking the original code started it in 'main' branch of this repo and solution in 'test' branch
 
-There are two stages to this code test:
+## Architecture
+From architecture perspective given there is a requirement to load ".csv" files for people and places, and there are independent Apps (Dockerized Apps written in Python) that load the .csv file and to be orchestreated with Airflow as shown below
 
-1. Preparing code at home ahead of your interview
-2. Pairing with us at the interview, making additions to your code
+![airflow](https://github.com/filmonhg/data-engineering-main/assets/9483662/a66f89ab-3c91-4ffb-a375-f00d083b5765)
 
-The pairing phase is to give us an indication of what it will be like to work together, and should be regarded as a collaborative effort.
 
-## Prerequisites
+![Screenshot 2023-11-05 at 6 58 57 PM](https://github.com/filmonhg/data-engineering-main/assets/9483662/73f4daaa-8de3-4a07-9d81-b028302e5511)
 
-- Knowledge of relational databases, create tables, insert data, and query data.
-- Knowledge of a Python programming language
-- Some familiarity with Docker for container management
-- Familiarity with Git for source control
+### CREATE TABLE SCHEMA
+db_init: has `01_places_schema.sql` and `02_people_schema.sql` to create the necessary schema in Postgres
 
-We have included sample data and python code. The example schema creates a simple table with python code to load data from a CSV file and output to a JSON file. 
-There are instructions towards the bottom of this document explaining how to use the Docker containers, start the database, and use the example.
+1. `01_places_schema.sql`: Making sure there is no duplicate city,county and country as they are used as reference by using city with people table
+```sql
+CREATE TABLE locations (
+    id SERIAL PRIMARY KEY,
+    city VARCHAR(255),
+    county VARCHAR(255),
+    country VARCHAR(255),
+    CONSTRAINT unique_location UNIQUE (city, county, country)
+);
 
-## Background
-
-We have provided a Github repo containing:
-
-- A **docker-compose.yml** file that configures a container for the Postgres database, and the example app containers.
-- An **example_schema.sql** file containing a table schema used by the python script.
-- A **data** folder containing four files:
-  - **example.csv** A tiny dataset, used by the example scripts.
-  - **places.csv** 113 rows, where each row has a city, county, and country name.
-  - **people.csv** 10,000 rows, where each row has a first name, last name, date of birth, and city of birth.
-  - **sample_output.json** Sample output file, to show what your output should look like.
-
-## Problem
-
-There are a sequence of steps that we would like you to complete. We hope this won't take more than a couple of hours of your time.
-
-1. Fork this git repo to your own Github account.
-2. Devise a database schema to hold the data in the people and places CSV files, and apply it to the Postgres database. You may apply this schema via a script, via the Postgres command-line client, or via a GUI client.
-3. Create a Docker image for loading the CSV files, places.csv and people.csv, into the tables you have created in the database. Make sure the appropriate config is in the docker compose file. Your data ingest process can be implemented in any way that you like, as long as it runs within a Docker container. You may implement this via programme code in a language of your choice, or via the use of ETL tools.
-4. Create a Docker image for outputting a summary of content in the database. You may implement this using a programming language of your choice. The output must be in JSON format, and be written to a file in the data folder called **data/summary_output.json**. It should consist of a list of the countries, and a count of how many people were born in that country. We have supplied a sample output **data/sample_output.json** to compare your file against.
-5. Share a link to your cloned Github repo with us so we can review your code ahead of your interview.
-
-We have provided an example schema and code that shows how to handle a simple data ingest and output.
-
-Details of how to run and connect to the database are below, together with how to use the example schema and code.
-
-### Notes on completing these tasks
-
-- There is no right way to do this. We are interested in the choices that you make, how you justify them, and your development process.
-- Consider how normalized your schema should be, and whether you should be using foreign keys to join tables.
-- When you create a container, make sure that you add the container config to the docker-compose.yml file, and add your Dockerfile and code to the src folder.
-- Consider what kind of error handling and testing is appropriate.
-- All data input, storage, and output should be in UTF-8. Expect multi-byte characters in the data.
-- The Postgres database storage is ephemeral; it will not persist, so make sure all schema and data queries are repeatable.
-- You may find it easier to work with a subset of the data when developing your ingest.
-
-## Pairing activity at your interview
-
-We will spend 60 minutes during the interview pairing with you. This will include:
-
-- Looking at your current code and solution.
-- Modifying your output code, to add several new output files containing different subsets of the data. Be prepared to make different queries of the database, to manipulate data in your programme code, and to output data to disk as JSON and CSV files.
-
-## Notes on using the images in the git repo
-
-### Requirements
-
-Make sure you have recent versions of Docker and Docker Compose.
-
-### Building the images
-
-This will build all the images referenced in the Docker Compose file. You will need to re-run this after making code changes.
+                                    Table "public.locations"
+ Column  |          Type          | Collation | Nullable |                Default                
+---------+------------------------+-----------+----------+---------------------------------------
+ id      | integer                |           | not null | nextval('locations_id_seq'::regclass)
+ city    | character varying(255) |           |          | 
+ county  | character varying(255) |           |          | 
+ country | character varying(255) |           |          | 
+Indexes:
+    "locations_pkey" PRIMARY KEY, btree (id)
+    "unique_location" UNIQUE CONSTRAINT, btree (city, county, country)
+Referenced by:
+    TABLE "people" CONSTRAINT "people_place_of_birth_id_fkey" FOREIGN KEY (place_of_birth_id) REFERENCES locations(id) ON DELETE SET NULL
 
 ```
-docker-compose build
+3. `02_people_schema.sql` that uses place_of_birth as foreign key to locations table as follows (Thus normalized) and necessary adjustments in case of deletion to set it to NULL
+```sql
+CREATE TABLE people (
+    id SERIAL PRIMARY KEY,
+    given_name VARCHAR(255),
+    family_name VARCHAR(255),
+    date_of_birth DATE,
+    place_of_birth_id INTEGER,
+    FOREIGN KEY (place_of_birth_id) REFERENCES locations (id) ON DELETE SET  NULL
+);
+                                         Table "public.people"
+      Column       |          Type          | Collation | Nullable |              Default               
+-------------------+------------------------+-----------+----------+------------------------------------
+ id                | integer                |           | not null | nextval('people_id_seq'::regclass)
+ given_name        | character varying(255) |           |          | 
+ family_name       | character varying(255) |           |          | 
+ date_of_birth     | date                   |           |          | 
+ place_of_birth_id | integer                |           |          | 
+Indexes:
+    "people_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "people_place_of_birth_id_fkey" FOREIGN KEY (place_of_birth_id) REFERENCES locations(id) ON DELETE SET NULL
+```
+### LOAD CSV, TRANSFORM and WRITE TO JSON
+1. load_people App
+   This App loads `people.csv` to postgres table `people` under `codetest` and is dockerzied
+2. load_places App
+   This App loads `places.csv` to postgres table `locations` under `codetest` and is dockerzied
+3. Transform App
+   This App reads from "locations" and "people" table to get list of the countries, and a count of how many people were born in that country and is dockerized.
+   
+### ORCHESTRATION
+The application is orchestrated with airflow who manages the flow of execution using `ETL_people_places.py` as `DAG`
+```
+├── Readme.md
+├── docker-compose.yml
+├── db_init
+│   ├── 01_places_schema.sql
+│   ├── 02_people_schema.sql
+│   └── 03_example_schema.sql
+├── dags
+│   ├── ETL_people_places_dag.py
+├── data
+│   ├── people.csv
+│   ├── places.csv
+│   ├── sample_output.json
+│   └── summary_output.json
+├── load_people
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── main.py
+│   └── requirements.txt
+├── load_places
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── main.py
+│   └── requirements.txt
+└── transform
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── main.py
+│   └── requirements.txt
+├── logs
+├── db
+
 ```
 
-### Starting Postgres
 
-To start up the Postgres database. This will take a short while to run the database’s start-up scripts.
+## Sample Data before (in .csv) and after normalization (in Postgres table)
+### people.csv
+| given_name | family_name | date_of_birth | place_of_birth |
+|------------|-------------|---------------|----------------|
+| John       | Williams    | 1842-09-30    | Dumfries       |
+| Grace      | Jeffery     | 1899-06-14    | Kelso          |
+| Sean       | Molnar      | 1982-11-01    | Dromore        |
+
+### people table
+```sql
+codetest=# select * from people limit 3 ;
+ id | given_name | family_name | date_of_birth | place_of_birth_id 
+----+------------+-------------+---------------+-------------------
+  1 | John       | Williams    | 1842-09-30    |                41
+  2 | Grace      | Jeffery     | 1899-06-14    |                67
+  3 | Sean       | Molnar      | 1982-11-01    |                38
+ ``` 
+### places.csv
+| city    | county          | country  |
+|---------|-----------------|----------|
+| Aberdeen| Aberdeenshire   | Scotland |
+| Airdrie | Lanarkshire     | Scotland |
+| Alloa   | Clackmannanshire| Scotland |
+| Annan   | Dumfriesshire   | Scotland |
+
+### locations table
+```sql
+codetest=# select * from locations limit 4;
+ id |   city   |      county      | country  
+----+----------+------------------+----------
+  1 | Aberdeen | Aberdeenshire    | Scotland
+  2 | Airdrie  | Lanarkshire      | Scotland
+  3 | Alloa    | Clackmannanshire | Scotland
+  4 | Annan    | Dumfriesshire    | Scotland
+```
+## Execution/Flow and Result
+Follow the following instructions when running it:
+
+### PREREQUISITE
+customimze absolute path of the `data` folder that will be mounted in each App in `.env` and also version of Airflow which now uses `apache/airflow:latest` but feel free to use any older version as well
+
 
 ```
-docker-compose up database
+DATA_DIR='/absolute_path/data'
 ```
 
-### Example scripts
+To build images of load,transform Apps as well as Application postgres (with init to create the schema for locations and people) and Airflow (Webserver, scheduler,meta data postgres and db_init to initialize metadata of airflow and schema) 
+```
+docker-compose up --build -d
+```
+Default initialized use for Airflow ui : `localhost:8080` will be 
+```
+user: 'admin'
+pass: 'airflow'  
+```
+1. Postgres schema is created for both `locations` table and `people` table with necessary constraints and normalizations
+2. Location table is loaded first given people reference the locations table from location.csv with `load_places` App
+3. People table is loaded from people.csv with `load_people` App
+4. `transform` App then does the join and executes to get list of the countries, and a count of how many people were born in that country
 
-We have provided example code written Python. It shows how to use the code in a separate Docker container to connect to the database, using an ORM library where appropriate, to load data from a CSV file, and to query data to output as a JSON file.
-It should be regarded as illustrative; it is fine to use any of these examples as the basis of your own solution, but we would prefer that you use technologies that you feel comfortable with.
-
-Then make sure that the containers have been built with `docker-compose build` and start the app with:
+## RESULT JSON ==> `summary_output.json` as follows 
+```json
+{
+    "Northern Ireland": 1952,
+    "Scotland": 8048
+}
+```
+### CLEAN UP
+```
+docker-compose down -v --remove-orphan
 
 ```
-docker-compose up app
-```
 
-In each case, the programme loads data from the data/example.csv file into that table, and exports data from the database table to a JSON file in the data folder. Note that the scripts do not truncate the table, so each one you run will add additional content.
 
-### Cleaning up
 
-To tidy up, bringing down all the containers and deleting them.
 
-```
-docker-compose down -v --remove-orphans
-```
