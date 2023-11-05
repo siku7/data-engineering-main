@@ -1,0 +1,72 @@
+version: "3.7"
+
+services:
+  postgres_metadata:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow_password
+      POSTGRES_DB: airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: "test"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db_init:/docker-entrypoint-initdb.d/
+      # - AIRFLOW__WEBSERVER__SECRET_KEY="test"
+
+  database:
+    image: postgres
+    volumes:
+      - ./example_schema.sql:/docker-entrypoint-initdb.d/example_schema.sql
+    environment:
+      - POSTGRES_DB=codetest
+      - POSTGRES_USER=codetest
+      - POSTGRES_PASSWORD=password
+    healthcheck:
+      test: pg_isready -U codetest
+      interval: 5s
+      timeout: 1s
+      retries: 3
+    ports:
+      - 5433:5432
+  webserver:
+    image: apache/airflow:2.7.2
+    environment:
+      - LOAD_EX=n
+      - EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_password@postgres_metadata:5432/airflow
+      - AIRFLOW__WEBSERVER__SECRET_KEY="test"
+      # - AIRFLOW__CORE__FERNET_KEY=1cbfd9939bbdb8647cb7bef7801244dae4ccffd45d4ba4605298b3988281cdd6
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/data
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres_metadata
+      - database
+    command: webserver
+
+  scheduler:
+    image: apache/airflow:2.7.2
+    depends_on:
+      - webserver
+    environment:
+      - LOAD_EX=n
+      - EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_password@postgres_metadata:5432/airflow
+      # - AIRFLOW__CORE__FERNET_KEY=1cbfd9939bbdb8647cb7bef7801244dae4ccffd45d4ba4605298b3988281cdd6
+      - AIRFLOW__WEBSERVER__SECRET_KEY="test"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/data
+    command: scheduler
+
+
+
+  app:
+    image: app
+    build: src
+    command: ["./main.py"]
+    volumes:
+      - ./data:/data
